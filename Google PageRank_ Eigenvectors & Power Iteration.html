@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Google PageRank using Eigenvectors & Power Iteration</title>
+<style>
+:root{--bg:#f6f7fb;--fg:#1d2433;--card:#fff;--muted:#5b6578;--bd:#d9deea;--ac:#2563eb;--hi:#ea580c;--ok:#15803d;--bad:#b91c1c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10141d;--fg:#e6e9f0;--card:#1a2030;--muted:#9aa4b8;--bd:#2c3550;--ac:#60a5fa;--hi:#fb923c;--ok:#4ade80;--bad:#f87171}}
+:root[data-theme="dark"]{--bg:#10141d;--fg:#e6e9f0;--card:#1a2030;--muted:#9aa4b8;--bd:#2c3550;--ac:#60a5fa;--hi:#fb923c;--ok:#4ade80;--bad:#f87171}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:14px}
+h1{font-size:1.35rem;margin:6px 0 4px}
+h2{font-size:1.1rem;margin:0 0 8px}
+section{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:14px;margin:12px 0}
+p{margin:6px 0}.muted{color:var(--muted);font-size:.92rem}
+.flow{font-weight:600;color:var(--ac)}
+textarea,input{font:inherit;color:var(--fg);background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;width:100%}
+textarea{font-family:ui-monospace,Menlo,monospace;height:110px;resize:vertical}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>div{flex:1;min-width:120px}
+label{font-size:.9rem;font-weight:600;display:block;margin:6px 0 2px}
+button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:10px 14px;background:var(--ac);color:#fff;cursor:pointer}
+button.alt{background:var(--bg);color:var(--fg);border:1px solid var(--bd)}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.err{color:var(--bad);font-weight:600;margin-top:8px}
+.eq{font-family:ui-monospace,Menlo,monospace;background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px;overflow-x:auto;white-space:pre;font-size:.88rem}
+.scroll{overflow-x:auto;max-height:260px;overflow-y:auto}
+table{border-collapse:collapse;width:100%;font-size:.88rem;font-variant-numeric:tabular-nums}
+th,td{border:1px solid var(--bd);padding:4px 8px;text-align:right}th:first-child,td:first-child{text-align:left}
+tr.top td{font-weight:700}
+.bar{display:flex;align-items:center;gap:8px;margin:5px 0}.bar b{width:60px}
+.bar i{display:block;height:18px;border-radius:4px;background:var(--ac)}.bar.hi i{background:var(--hi)}
+.bar span{font-size:.88rem;font-variant-numeric:tabular-nums}
+svg{width:100%;max-width:420px;display:block;margin:0 auto}
+.summary{border-left:4px solid var(--ok);padding-left:10px;font-weight:600}
+.known{border:2px solid var(--hi)}
+ol{padding-left:20px;margin:6px 0}
+</style></head><body><main>
+
+<h1>Google PageRank using Eigenvalues, Eigenvectors &amp; Power Iteration</h1>
+<p class="flow">Matrix → Transition Matrix → Power Iteration → Stable PageRank → Eigenvector</p>
+
+<section>
+<h2>1. What is PageRank?</h2>
+<p>PageRank is a number that tells how important a web page is. A page gets a higher PageRank when many pages link to it, especially important pages.</p>
+<p>Mathematically, PageRank is the <b>dominant eigenvector</b> of a transition matrix. We find it by multiplying again and again (power iteration).</p>
+</section>
+
+<section>
+<h2>2. Enter a small web graph</h2>
+<p class="muted">Adjacency matrix: size 2×2, 3×3 or 4×4. Use only 0 or 1. Row i, column j = 1 means "page i links to page j". Separate numbers with spaces, one row per line.</p>
+<label for="mat">Matrix</label>
+<textarea id="mat"></textarea>
+<div class="row">
+<div><label for="d">Damping factor d (0 to 1)</label><input id="d" type="number" step="0.01" min="0" max="1"></div>
+<div><label for="it">Iterations (1 to 100)</label><input id="it" type="number" step="1" min="1" max="100"></div>
+</div>
+<div class="btns">
+<button id="calc">Calculate PageRank</button>
+<button class="alt" id="knownBtn">Use Known Test Case</button>
+<button class="alt" id="reset">Reset</button>
+</div>
+<div id="err" class="err"></div>
+</section>
+
+<div id="out">
+<section>
+<h2>3. Calculate PageRank</h2>
+<p>Each page splits its "vote" equally among the pages it links to. A page with <b>no outgoing links</b> (dangling page) is treated as linking to every page equally.</p>
+<p><b>Transition matrix M</b> (each column adds up to 1):</p>
+<div class="scroll"><table id="Mtab"></table></div>
+<p>PageRank formula:</p>
+<div class="eq">r = d·M·r + (1−d)/N</div>
+<p class="muted">r = PageRank vector, M = transition matrix, d = damping factor, N = number of pages.</p>
+<p id="params" class="muted"></p>
+</section>
+
+<section>
+<h2>4. Power Iteration, step by step</h2>
+<p>Start with <span id="r0"></span>, then repeat: r₁ = d·M·r₀ + (1−d)/N, r₂ = d·M·r₁ + (1−d)/N, ...</p>
+<div class="scroll"><table id="itab"></table></div>
+<label for="k">Show the actual multiplication for iteration:</label>
+<input id="k" type="number" min="1" step="1" value="1" style="max-width:120px">
+<div class="eq" id="mult"></div>
+</section>
+
+<section>
+<h2>5. Eigenvalue / Eigenvector</h2>
+<p>When the values stop changing, applying the formula again gives the same vector back:</p>
+<div class="eq">G·r ≈ λ·r     (G = d·M + (1−d)/N in every cell)</div>
+<p>That means <b>r is an eigenvector</b> of G, and λ is its eigenvalue. For PageRank the dominant eigenvalue is about <b>λ = 1</b>.</p>
+<div class="eq" id="eig"></div>
+</section>
+
+<section>
+<h2>6. Visualization</h2>
+<p class="muted">Arrows follow your matrix. Bigger circle = higher PageRank. The highest page is orange.</p>
+<svg id="svg" viewBox="0 0 320 270" role="img" aria-label="Web graph"></svg>
+<div id="bars"></div>
+<p class="summary" id="sum"></p>
+</section>
+</div>
+
+<section class="known">
+<h2>7. Known Test Case</h2>
+<p><b>Matrix:</b></p>
+<div class="eq">0 1 1
+1 0 0
+1 1 0</div>
+<p>Damping factor d = 0.85 · Starting vector [1/3, 1/3, 1/3] · 50 iterations. This is only a mathematical test graph, not real website data.</p>
+<div id="kres"></div>
+</section>
+
+<section>
+<h2>9. How the project works</h2>
+<ol>
+<li>We represent web pages using a matrix.</li>
+<li>The matrix tells us which page links to which page.</li>
+<li>We convert it into a transition matrix.</li>
+<li>We repeatedly multiply the PageRank vector by the matrix.</li>
+<li>The values gradually stabilize.</li>
+<li>The stable vector represents the PageRank.</li>
+<li>Mathematically, this is related to the dominant eigenvector.</li>
+</ol>
+</section>
+
+<script>
+// ---------- Basic data ----------
+var NAMES = ["A", "B", "C", "D"];
+var DEFAULT_MATRIX = "0 1 1\n1 0 0\n1 1 0";
+var $ = function (id) { return document.getElementById(id); };
+var f = function (x, n) { return x.toFixed(n === undefined ? 4 : n); };
+
+// ---------- Step 1: read and check the matrix ----------
+function parseMatrix(text) {
+  var rows = text.split(/\n|;/).map(function (r) { return r.trim(); })
+    .filter(function (r) { return r.length > 0; })
+    .map(function (r) { return r.split(/[\s,]+/).map(Number); });
+  var N = rows.length;
+  if (N < 2 || N > 4) throw new Error("Please enter 2, 3 or 4 rows (a 2×2, 3×3 or 4×4 matrix).");
+  rows.forEach(function (r, i) {
+    if (r.length !== N) throw new Error("Row " + (i + 1) + " has " + r.length + " numbers, but it needs " + N + " (the matrix must be square).");
+    r.forEach(function (v) { if (v !== 0 && v !== 1) throw new Error("Use only 0 or 1 in the matrix."); });
+  });
+  return rows;
+}
+
+// ---------- Step 2: adjacency matrix -> transition matrix M ----------
+// A[i][j] = 1 means page i links to page j.
+// Column i of M holds page i's votes: 1/(number of links) for each linked page.
+// A page with no links shares its vote equally with all pages (1/N).
+function makeTransition(A) {
+  var N = A.length;
+  var M = A.map(function () { return new Array(N).fill(0); });
+  for (var i = 0; i < N; i++) {
+    var out = A[i].reduce(function (s, v) { return s + v; }, 0);
+    for (var j = 0; j < N; j++) M[j][i] = out > 0 ? A[i][j] / out : 1 / N;
+  }
+  return M;
+}
+
+// ---------- Step 3: power iteration ----------
+// new r = d * (M times r) + (1-d)/N
+function step(M, r, d) {
+  var N = r.length;
+  return r.map(function (_, i) {
+    var s = 0;
+    for (var j = 0; j < N; j++) s += M[i][j] * r[j];
+    return d * s + (1 - d) / N;
+  });
+}
+function powerIteration(M, d, iters) {
+  var N = M.length;
+  var r = new Array(N).fill(1 / N);          // r0 = [1/N, ..., 1/N]
+  var history = [r];
+  for (var k = 0; k < iters; k++) { r = step(M, r, d); history.push(r); }
+  return history;
+}
+function bestPages(r) {                       // indexes of the largest value(s)
+  var mx = Math.max.apply(null, r);
+  return r.map(function (v, i) { return Math.abs(v - mx) < 1e-9 ? i : -1; }).filter(function (i) { return i >= 0; });
+}
+function summaryText(r) {
+  var b = bestPages(r);
+  if (b.length === r.length) return "All pages have equal PageRank (" + f(r[0]) + " each) because the graph is perfectly symmetric.";
+  if (b.length > 1) return "Pages " + b.map(function (i) { return NAMES[i]; }).join(" and ") + " are tied for the highest PageRank because the iterative calculation gives them the same largest final rank.";
+  return "Page " + NAMES[b[0]] + " has the highest PageRank because the iterative calculation gives it the largest final rank.";
+}
+
+// ---------- Drawing helpers ----------
+function matrixTable(M, labelFn, digits) {
+  var N = M.length, h = "<tr><th></th>";
+  for (var j = 0; j < N; j++) h += "<th>" + NAMES[j] + "</th>";
+  h += "</tr>";
+  M.forEach(function (row, i) {
+    h += "<tr><th>" + labelFn(i) + "</th>" + row.map(function (v) { return "<td>" + f(v, digits) + "</td>"; }).join("") + "</tr>";
+  });
+  return h;
+}
+
+function drawGraph(A, r) {
+  var N = A.length, cx = 160, cy = 135, R = 95;
+  var best = bestPages(r);
+  var pos = [], rad = [];
+  for (var i = 0; i < N; i++) {
+    var ang = -Math.PI / 2 + i * 2 * Math.PI / N;
+    pos.push([cx + R * Math.cos(ang), cy + R * Math.sin(ang), ang]);
+    rad.push(16 + 24 * r[i]);                 // node size grows with PageRank
+  }
+  var s = '<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#8a94a8"/></marker></defs>';
+  for (var a = 0; a < N; a++) for (var b = 0; b < N; b++) {
+    if (!A[a][b]) continue;
+    if (a === b) {                            // self link: small loop outside the node
+      var lx = pos[a][0] + (rad[a] + 6) * Math.cos(pos[a][2]), ly = pos[a][1] + (rad[a] + 6) * Math.sin(pos[a][2]);
+      s += '<circle cx="' + lx + '" cy="' + ly + '" r="9" fill="none" stroke="#8a94a8" stroke-width="1.5"/>';
+      continue;
+    }
+    var dx = pos[b][0] - pos[a][0], dy = pos[b][1] - pos[a][1], L = Math.sqrt(dx * dx + dy * dy);
+    var ux = dx / L, uy = dy / L;
+    var x1 = pos[a][0] + ux * rad[a], y1 = pos[a][1] + uy * rad[a];
+    var x2 = pos[b][0] - ux * (rad[b] + 3), y2 = pos[b][1] - uy * (rad[b] + 3);
+    var qx = (x1 + x2) / 2 - uy * 22, qy = (y1 + y2) / 2 + ux * 22;   // curve so A→B and B→A do not overlap
+    s += '<path d="M' + x1 + ',' + y1 + ' Q' + qx + ',' + qy + ' ' + x2 + ',' + y2 + '" fill="none" stroke="#8a94a8" stroke-width="1.8" marker-end="url(#ah)"/>';
+  }
+  for (var n = 0; n < N; n++) {
+    var hi = best.indexOf(n) >= 0 && best.length < N;
+    s += '<circle cx="' + pos[n][0] + '" cy="' + pos[n][1] + '" r="' + rad[n] + '" fill="' + (hi ? "var(--hi)" : "var(--ac)") + '"/>';
+    s += '<text x="' + pos[n][0] + '" y="' + (pos[n][1] + 5) + '" text-anchor="middle" fill="#fff" font-size="15" font-weight="700">' + NAMES[n] + '</text>';
+    s += '<text x="' + pos[n][0] + '" y="' + (pos[n][1] + rad[n] + 13) + '" text-anchor="middle" fill="var(--fg)" font-size="11">' + f(r[n], 3) + '</text>';
+  }
+  $("svg").innerHTML = s;
+}
+
+function drawBars(r) {
+  var best = bestPages(r), mx = Math.max.apply(null, r);
+  $("bars").innerHTML = r.map(function (v, i) {
+    var hi = best.indexOf(i) >= 0 && best.length < r.length;
+    return '<div class="bar' + (hi ? " hi" : "") + '"><b>Page ' + NAMES[i] + '</b><i style="width:' + (v / mx * 55) + '%"></i><span>' + f(v) + '</span></div>';
+  }).join("");
+}
+
+// ---------- Main: calculate and show everything ----------
+var state = null;
+function showMult() {                         // the real multiplication for one iteration
+  if (!state) return;
+  var hist = state.hist, M = state.M, d = state.d, N = M.length;
+  var k = Math.max(1, Math.min(hist.length - 1, parseInt($("k").value) || 1));
+  $("k").max = hist.length - 1;
+  var prev = hist[k - 1], t = "r" + k + " = " + d + " × M × r" + (k - 1) + " + " + f((1 - d) / N) + "\n";
+  for (var i = 0; i < N; i++) {
+    var terms = [], sum = 0;
+    for (var j = 0; j < N; j++) { terms.push(f(M[i][j], 2) + "×" + f(prev[j], 3)); sum += M[i][j] * prev[j]; }
+    t += "\n" + NAMES[i] + ": " + d + " × (" + terms.join(" + ") + ") + " + f((1 - d) / N) + " = " + f(hist[k][i]);
+  }
+  $("mult").textContent = t;
+}
+
+function calculate() {
+  try {
+    var A = parseMatrix($("mat").value);
+    var d = parseFloat($("d").value), iters = parseInt($("it").value);
+    if (isNaN(d) || d < 0 || d > 1) throw new Error("Damping factor must be a number between 0 and 1.");
+    if (isNaN(iters) || iters < 1 || iters > 100) throw new Error("Iterations must be a whole number from 1 to 100.");
+    $("err").textContent = "";
+    var N = A.length, M = makeTransition(A), hist = powerIteration(M, d, iters), r = hist[iters];
+    state = { M: M, hist: hist, d: d };
+
+    $("Mtab").innerHTML = matrixTable(M, function (i) { return NAMES[i]; }, 3);
+    $("params").textContent = "N = " + N + ", d = " + d + ", (1−d)/N = " + f((1 - d) / N);
+    $("r0").textContent = "r₀ = [" + hist[0].map(function (v) { return f(v, 3); }).join(", ") + "]";
+
+    var best = bestPages(r), h = "<tr><th>Step</th>" + NAMES.slice(0, N).map(function (n) { return "<th>" + n + "</th>"; }).join("") + "</tr>";
+    hist.forEach(function (v, k) {
+      h += "<tr" + (k === iters ? ' class="top"' : "") + "><td>r" + k + "</td>" + v.map(function (x) { return "<td>" + f(x) + "</td>"; }).join("") + "</tr>";
+    });
+    $("itab").innerHTML = h;
+    $("k").value = Math.min(parseInt($("k").value) || 1, iters);
+    showMult();
+
+    // Eigenvector check: G·r should give back (almost) r, so λ ≈ 1
+    var Gr = step(M, r, d), num = 0, den = 0;
+    for (var i = 0; i < N; i++) { num += r[i] * Gr[i]; den += r[i] * r[i]; }
+    var lam = num / den, sum = r.reduce(function (a, b) { return a + b; }, 0);
+    var e = "final r  = [" + r.map(function (v) { return f(v); }).join(", ") + "]\nG·r      = [" + Gr.map(function (v) { return f(v); }).join(", ") + "]\n";
+    e += "λ ≈ (r·Gr)/(r·r) = " + f(lam) + "\nsum of r = " + f(sum, 4) + "  (PageRank values add up to 1)";
+    $("eig").textContent = e;
+
+    drawGraph(A, r); drawBars(r);
+    $("sum").textContent = summaryText(r);
+  } catch (ex) {
+    $("err").textContent = "⚠ " + ex.message;
+  }
+}
+
+// ---------- Fixed Known Test Case (independent of the inputs) ----------
+function showKnown() {
+  var A = [[0, 1, 1], [1, 0, 0], [1, 1, 0]];
+  var hist = powerIteration(makeTransition(A), 0.85, 50), r = hist[50];
+  var best = bestPages(r)[0];
+  var h = r.map(function (v, i) { return "<div class='bar" + (i === best ? " hi" : "") + "'><b>Page " + NAMES[i] + "</b><i style='width:" + (v / r[best] * 55) + "%'></i><span>" + f(v) + "</span></div>"; }).join("");
+  $("kres").innerHTML = "<p><b>Final normalized PageRank (from the program):</b></p>" + h +
+    "<p>Highest PageRank: <b>Page " + NAMES[best] + "</b> (" + f(r[best]) + ")</p>";
+}
+
+// ---------- Buttons ----------
+function setDefaults() { $("mat").value = DEFAULT_MATRIX; $("d").value = 0.85; $("it").value = 20; $("k").value = 1; }
+$("calc").onclick = calculate;
+$("knownBtn").onclick = function () { setDefaults(); calculate(); };
+$("reset").onclick = function () { setDefaults(); calculate(); };
+$("k").oninput = showMult;
+["mat", "d", "it"].forEach(function (id) { $(id).addEventListener("input", calculate); }); // live update
+setDefaults(); calculate(); showKnown();
+</script>
+</main></body></html>
